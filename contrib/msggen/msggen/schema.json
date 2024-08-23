@@ -2951,6 +2951,12 @@
                       "debit_msat": {},
                       "currency": {},
                       "timestamp": {},
+                      "description": {
+                        "type": "string",
+                        "description": [
+                          "The description of this event."
+                        ]
+                      },
                       "outpoint": {
                         "type": "string",
                         "description": [
@@ -2979,12 +2985,6 @@
                         "type": "txid",
                         "description": [
                           "The txid of the transaction that created this event."
-                        ]
-                      },
-                      "description": {
-                        "type": "string",
-                        "description": [
-                          "The description of this event."
                         ]
                       }
                     },

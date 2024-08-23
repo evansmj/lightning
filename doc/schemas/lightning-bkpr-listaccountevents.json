@@ -122,6 +122,7 @@
                   "debit_msat": {},
                   "currency": {},
                   "timestamp": {},
+                  "description": {},
                   "outpoint": {
                     "type": "string",
                     "description": [
