@@ -1563,6 +1563,8 @@ def _get_all_plugins_from_source(src: str) -> list:
         log.debug(f"Failed to populate source {src}: {e}")
         return plugins
 
+    plugins.append((root.name, src))
+    
     for item in root.contents:
         if isinstance(item, SourceDir):
             # Skip archive directories
