@@ -1904,7 +1904,7 @@ def test_bitcoin_backend(node_factory, bitcoind):
 def test_bitcoin_backend_gianttx(node_factory, bitcoind):
     """Test that a giant tx doesn't crash bcli"""
     # This complains about how long fundpsbt took.
-    l1 = node_factory.get_node(start=False, broken_log='Request fundpsbt took')
+    l1 = node_factory.get_node(start=False, broken_log="That's weird: Request .*psbt took")
     # With memleak we spend far too much time gathering backtraces.
     if "LIGHTNINGD_DEV_MEMLEAK" in l1.daemon.env:
         del l1.daemon.env["LIGHTNINGD_DEV_MEMLEAK"]
@@ -2268,6 +2268,9 @@ def test_coin_movement_notices(node_factory, bitcoind, chainparams):
     l2.rpc.sendpay(route, payment_hash21, payment_secret=inv['payment_secret'])
     l2.rpc.waitsendpay(payment_hash21)
 
+    # Make sure coin_movements.py sees event before we restart!
+    l2.daemon.wait_for_log(f"plugin-coin_movements.py: coin movement: .*'payment_hash': '{payment_hash21}'")
+
     # restart to test index
     l2.restart()
     wait_for(lambda: all(c['state'] == 'CHANNELD_NORMAL' for c in l2.rpc.listpeerchannels()["channels"]))
@@ -2316,7 +2319,7 @@ def test_important_plugin(node_factory):
     n = node_factory.get_node(options={"important-plugin": os.path.join(pluginsdir, "nonexistent")},
                               may_fail=True, expect_fail=True,
                               # Other plugins can complain as lightningd stops suddenly:
-                              broken_log='Plugin marked as important, shutting down lightningd|Reading sync lightningd: Connection reset by peer|Lost connection to the RPC socket',
+                              broken_log='Plugin marked as important, shutting down lightningd|Reading sync lightningd: Connection reset by peer|Lost connection to the RPC socket|Plugin terminated before replying to RPC call',
                               start=False)
 
     n.daemon.start(wait_for_initialized=False, stderr_redir=True)
@@ -2611,6 +2614,7 @@ def test_htlc_accepted_hook_failonion(node_factory):
         l1.rpc.pay(inv)
 
 
+@pytest.mark.slow_test  # VALGRIND running generally too slow to trigger race we need.
 def test_hook_in_use(node_factory):
     """If a hook is in use when we add a plugin to it, we have to defer"""
     dep_a = os.path.join(os.path.dirname(__file__), 'plugins/dep_a.py')
@@ -2844,7 +2848,8 @@ def test_plugin_shutdown(node_factory):
 
 def test_commando(node_factory, executor):
     l1, l2 = node_factory.line_graph(2, fundchannel=False,
-                                     opts={'log-level': 'io'})
+                                     # Under valgrind, checkrune of 400k command can be slow!
+                                     opts={'log-level': 'io', 'broken_log': "That's weird: Request .* took"})
 
     rune = l1.rpc.createrune()['rune']
 
@@ -2982,7 +2987,7 @@ def test_autoclean(node_factory):
 
     # Under valgrind in CI, it can 50 seconds between creating invoice
     # and restarting.
-    if node_factory.valgrind:
+    if VALGRIND:
         short_timeout = 10
         longer_timeout = 60
     else:
@@ -3249,14 +3254,16 @@ def test_block_added_notifications(node_factory, bitcoind):
 def test_sql(node_factory, bitcoind):
     opts = {'experimental-dual-fund': None,
             'dev-allow-localhost': None,
-            'may_reconnect': True}
+            'may_reconnect': True,
+            'dev-no-reconnect': None}
     l2opts = {'lease-fee-basis': 50,
               'experimental-dual-fund': None,
               'lease-fee-base-sat': '2000msat',
               'channel-fee-max-base-msat': '500sat',
               'channel-fee-max-proportional-thousandths': 200,
               'dev-sqlfilename': 'sql.sqlite3',
-              'may_reconnect': True}
+              'may_reconnect': True,
+              'dev-no-reconnect': None}
     l2opts.update(opts)
     l1, l2, l3 = node_factory.line_graph(3, wait_for_announce=True,
                                          opts=[opts, l2opts, opts])
@@ -3507,6 +3514,8 @@ def test_sql(node_factory, bitcoind):
                          'type': 'boolean'},
                         {'name': 'bolt12',
                          'type': 'string'},
+                        {'name': 'description',
+                         'type': 'string'},
                         {'name': 'used',
                          'type': 'boolean'},
                         {'name': 'label',
@@ -3612,6 +3621,8 @@ def test_sql(node_factory, bitcoind):
                          'type': 'string'},
                         {'name': 'short_channel_id',
                          'type': 'short_channel_id'},
+                        {'name': 'direction',
+                         'type': 'u32'},
                         {'name': 'channel_id',
                          'type': 'hash'},
                         {'name': 'funding_txid',
@@ -3714,9 +3725,7 @@ def test_sql(node_factory, bitcoind):
                         {'name': 'close_to_addr',
                          'type': 'string'},
                         {'name': 'last_tx_fee_msat',
-                         'type': 'msat'},
-                        {'name': 'direction',
-                         'type': 'u32'}]},
+                         'type': 'msat'}]},
         'peerchannels_features': {
             'columns': [{'name': 'row',
                          'type': 'u64'},
@@ -4168,9 +4177,9 @@ def test_sql(node_factory, bitcoind):
 def test_sql_deprecated(node_factory, bitcoind):
     l1, l2 = node_factory.line_graph(2, opts=[{'allow-deprecated-apis': True}, {}])
 
-    # l1 allows it, l2 doesn't
-    ret = l1.rpc.sql("SELECT max_total_htlc_in_msat FROM peerchannels;")
-    assert ret == {'rows': [[-1]]}
+    # Even with deprecated APIs, this isn't there.
+    with pytest.raises(RpcError, match="Deprecated column table peerchannels.max_total_htlc_in_msat"):
+        l1.rpc.sql("SELECT max_total_htlc_in_msat FROM peerchannels;")
 
     # It's deprecated in l2, so that will fail!
     with pytest.raises(RpcError, match="Deprecated column table peerchannels.max_total_htlc_in_msat"):
@@ -4305,7 +4314,6 @@ def test_plugin_nostart(node_factory):
     assert [p['name'] for p in l1.rpc.plugin_list()['plugins'] if 'badinterp' in p['name']] == []
 
 
-@unittest.skip("A bit flaky, but when breaks, it is costing us 2h of CI time")
 def test_plugin_startdir_lol(node_factory):
     """Though we fail to start many of them, we don't crash!"""
     l1 = node_factory.get_node(broken_log='.*')

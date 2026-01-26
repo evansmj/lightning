@@ -311,6 +311,12 @@
                 "The short_channel_id (once locked in)."
               ]
             },
+            "direction": {
+              "type": "integer",
+              "description": [
+                "The direction of the channel (i.e. 0 if we are the lesser node id, 1 if we are the greater)."
+              ]
+            },
             "channel_id": {
               "type": "hash",
               "description": [
@@ -456,12 +462,11 @@
                   "option_static_remotekey",
                   "option_anchor_outputs",
                   "option_anchors",
-                  "option_anchors_zero_fee_htlc_tx",
                   "option_scid_alias",
                   "option_zeroconf"
                 ],
                 "description": [
-                  "BOLT #9 features which apply to this channel. Note that *anchors_zero_fee_htlc_tx* is a deprecated synonym for *anchors*."
+                  "BOLT #9 features which apply to this channel."
                 ]
               }
             },
@@ -568,7 +573,7 @@
               ],
               "deprecated": [
                 "v25.02",
-                "v26.06"
+                "v26.03"
               ]
             },
             "their_max_htlc_value_in_flight_msat": {
@@ -1453,16 +1458,16 @@
     "- -32602: If the given parameters are wrong."
   ],
   "author": [
-    "Michael Hawkins <<michael.hawkins@protonmail.com>>."
+    "Michael Hawkins [michael.hawkins@protonmail.com](mailto:michael.hawkins@protonmail.com)."
   ],
   "see_also": [
     "lightning-connect(7)",
     "lightning-fundchannel_start(7)"
   ],
   "resources": [
-    "Main web site: <https://github.com/ElementsProject/lightning>",
+    "Main web site: [https://github.com/ElementsProject/lightning](https://github.com/ElementsProject/lightning)",
     "Lightning RFC site (BOLT #9): ",
-    "<https://github.com/lightningnetwork/lightning-rfc/blob/master/09-features.md>"
+    "[https://github.com/lightningnetwork/lightning-rfc/blob/master/09-features.md](https://github.com/lightningnetwork/lightning-rfc/blob/master/09-features.md)"
   ],
   "examples": [
     {
@@ -1530,7 +1535,6 @@
             },
             "features": [
               "option_static_remotekey",
-              "option_anchors_zero_fee_htlc_tx",
               "option_anchors"
             ],
             "funding": {
@@ -1662,7 +1666,6 @@
             },
             "features": [
               "option_static_remotekey",
-              "option_anchors_zero_fee_htlc_tx",
               "option_anchors"
             ],
             "funding": {
@@ -1788,7 +1791,6 @@
             },
             "features": [
               "option_static_remotekey",
-              "option_anchors_zero_fee_htlc_tx",
               "option_anchors"
             ],
             "funding": {

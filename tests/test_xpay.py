@@ -172,10 +172,10 @@ def test_xpay_simple(node_factory):
     b11 = l4.rpc.invoice('10000msat', 'test_xpay_simple', 'test_xpay_simple bolt11')['bolt11']
     l1.rpc.xpay(b11)
 
-    # BOLT 12.
+    # BOLT 12 (with payer_note specified).
     offer = l3.rpc.offer('any')['bolt12']
     b12 = l1.rpc.fetchinvoice(offer, '100000msat')['invoice']
-    l1.rpc.xpay(b12)
+    l1.rpc.xpay(invstring=b12, payer_note="Payment for a cup of coffee")
 
     # Failure from l4.
     b11 = l4.rpc.invoice('10000msat', 'test_xpay_simple2', 'test_xpay_simple2 bolt11')['bolt11']
@@ -557,7 +557,9 @@ def test_xpay_maxfee(node_factory, bitcoind, chainparams):
                                      opts=[{'gossip_store_file': outfile.name,
                                             'subdaemon': 'channeld:../tests/plugins/channeld_fakenet',
                                             'allow_warning': True,
-                                            'dev-throttle-gossip': None},
+                                            'dev-throttle-gossip': None,
+                                            # This can be more than 10 seconds under CI!
+                                            'askrene-timeout': 60},
                                            {'allow_bad_gossip': True}])
 
     # l1 needs to know l2's shaseed for the channel so it can make revocations
@@ -672,12 +674,12 @@ def test_xpay_no_mpp(node_factory, chainparams):
 
 @pytest.mark.parametrize("deprecations", [False, True])
 def test_xpay_bolt12_no_mpp(node_factory, chainparams, deprecations):
-    """In deprecated mode, we use MPP even if BOLT12 invoice doesn't say we should"""
+    """If we force it, we use MPP even if BOLT12 invoice doesn't say we should"""
     # l4 needs dev-allow-localhost so it considers itself to have an advertized address, and doesn't create a blinded path from l2/l4.
     opts = [{}, {}, {'dev-force-features': -17, 'dev-allow-localhost': None}, {}]
     if deprecations is True:
         for o in opts:
-            o['allow-deprecated-apis'] = True
+            o['i-promise-to-fix-broken-api-user'] = 'xpay.ignore_bolt12_mpp'
             o['broken_log'] = 'DEPRECATED API USED: xpay.ignore_bolt12_mpp'
 
     l1, l2, l3, l4 = node_factory.get_nodes(4, opts=opts)

@@ -336,9 +336,11 @@ connections. Default is 9736.
 
 ### Lightning node customization options
 
-* **recover**=*hsmsecret*
+* **recover**=*mnemonic*
 
-  Restore the node from a 32-byte secret encoded as either a codex32 secret string or a 64-character hex string: this will fail if the `hsm_secret` file exists.  Your node will start the node in offline mode, for manual recovery.  The secret can be extracted from the `hsm_secret` using lightning-hsmtool(8).
+  Restore the node from a mnemonic.  For pre-25.12 nodes (which didn't have a mnemonic), use a 32-byte secret encoded as either a codex32 secret string or a 64-character hex string.
+  
+  This will fail if the `hsm_secret` file exists.  Your node will start the node in offline mode, for manual recovery.  The secret can be extracted from the `hsm_secret` using lightning-hsmtool(8)'s `getsecret`.
 
 * **alias**=*NAME*
 
@@ -855,7 +857,7 @@ to gain our eternal gratitude!
 AUTHOR
 ------
 
-Rusty Russell <<rusty@rustcorp.com.au>> wrote this man page, and
+Rusty Russell [rusty@rustcorp.com.au](mailto:rusty@rustcorp.com.au) wrote this man page, and
 much of the configuration language, but many others did the hard work of
 actually implementing these options.
 
@@ -868,7 +870,7 @@ lightning-hsmtool(8)
 RESOURCES
 ---------
 
-Main web site: <https://github.com/ElementsProject/lightning>
+Main web site: [https://github.com/ElementsProject/lightning](https://github.com/ElementsProject/lightning)
 
 COPYING
 -------

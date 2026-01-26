@@ -203,7 +203,12 @@ u8 *p2wpkh_for_keyidx(const tal_t *ctx, struct lightningd *ld, u64 keyidx)
 {
 	struct pubkey shutdownkey;
 
-	bip32_pubkey(ld, &shutdownkey, keyidx);
+	/* Use BIP86 derivation if wallet has BIP86 base, otherwise use BIP32 */
+	if (ld->bip86_base) {
+		bip86_pubkey(ld, &shutdownkey, keyidx);
+	} else {
+		bip32_pubkey(ld, &shutdownkey, keyidx);
+	}
 	return scriptpubkey_p2wpkh(ctx, &shutdownkey);
 }
 
@@ -1088,11 +1093,8 @@ static void NON_NULL_ARGS(1, 2, 4, 5) json_add_channel(struct command *cmd,
 		json_add_string(response, NULL, "option_static_remotekey");
 	if (channel_has(channel, OPT_ANCHOR_OUTPUTS_DEPRECATED))
 		json_add_string(response, NULL, "option_anchor_outputs");
-	if (channel_has(channel, OPT_ANCHORS_ZERO_FEE_HTLC_TX)) {
-		if (command_deprecated_out_ok(cmd, "features", "v24.08", "v25.09"))
-			json_add_string(response, NULL, "option_anchors_zero_fee_htlc_tx");
+	if (channel_has(channel, OPT_ANCHORS_ZERO_FEE_HTLC_TX))
 		json_add_string(response, NULL, "option_anchors");
-	}
 	if (channel_has(channel, OPT_ZEROCONF))
 		json_add_string(response, NULL, "option_zeroconf");
 	if (channel_has(channel, OPT_SCID_ALIAS))

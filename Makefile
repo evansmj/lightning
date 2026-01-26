@@ -3,14 +3,14 @@
 # Prefer VERSION from environment if provided (e.g., from GitHub Actions)
 # Extract version from git, or if we're from a zipfile, use dirname
 VERSION ?= $(shell git describe --tags --always --dirty=-modded --abbrev=7 2>/dev/null || \
-	pwd | sed -n 's|.*/c\{0,1\}lightning-v\{0,1\}\([0-9a-f.rc\-]*\)$$|v\1|gp')
+	pwd | $(SED) -n 's|.*/c\{0,1\}lightning-v\{0,1\}\([0-9a-f.rc\-]*\)$$|v\1|gp')
 $(info Building version $(VERSION))
 
 # Next release.
-CLN_NEXT_VERSION := v25.12
+CLN_NEXT_VERSION := v26.04
 
 # Previous release (for downgrade testing)
-CLN_PREV_VERSION := v25.09
+CLN_PREV_VERSION := v25.12
 
 # --quiet / -s means quiet, dammit!
 ifeq ($(findstring s,$(word 1, $(MAKEFLAGS))),s)
@@ -412,7 +412,7 @@ include plugins/Makefile
 include tests/plugins/Makefile
 
 # Only include fuzz tests if OpenSSL >= 3.0, will be disabled on ubuntu focal
-OPENSSL_VERSION := $(shell openssl version | sed -n 's/OpenSSL \([0-9]\+\)\..*/\1/p')
+OPENSSL_VERSION := $(shell openssl version | $(SED) -n 's/OpenSSL \([0-9]\+\)\..*/\1/p')
 ifneq ($(shell test $(OPENSSL_VERSION) -ge 3 && echo yes),)
 include tests/fuzz/Makefile
 endif
@@ -518,7 +518,7 @@ ifeq ($(PYTEST),)
 	exit 1
 else
 # Explicitly hand VALGRIND so you can override on make cmd line.
-	PYTHONPATH=$(MY_CHECK_PYTHONPATH) TEST_DEBUG=1 VALGRIND=$(VALGRIND) uv run $(PYTEST) $(PYTEST_TESTS) $(PYTEST_OPTS)
+	PYTHONPATH=$(MY_CHECK_PYTHONPATH) TEST_DEBUG=1 TEST_LOG_IGNORE_ERRORS=1 VALGRIND=$(VALGRIND) uv run $(PYTEST) $(PYTEST_TESTS) $(PYTEST_OPTS)
 endif
 
 check-fuzz: $(ALL_FUZZ_TARGETS)
@@ -545,6 +545,11 @@ check-makefile:
 SRC_TO_CHECK := $(filter-out $(ALL_TEST_PROGRAMS:=.c), $(ALL_NONGEN_SOURCES))
 check-src-includes: $(SRC_TO_CHECK:%=check-src-include-order/%)
 check-hdr-includes: $(ALL_NONGEN_HEADERS:%=check-hdr-include-order/%)
+
+print-src-to-check:
+	@echo $(SRC_TO_CHECK)
+print-hdr-to-check:
+	@echo $(ALL_NONGEN_HEADERS)
 
 # If you want to check a specific variant of quotes use:
 #   make check-source-bolt BOLTVERSION=xxx
@@ -673,6 +678,30 @@ coverage/coverage.info: check pytest
 
 coverage: coverage/coverage.info
 	genhtml coverage/coverage.info --output-directory coverage
+
+# Clang coverage targets (source-based coverage)
+coverage-clang-collect:
+	@./contrib/coverage/collect-coverage.sh "$(CLN_COVERAGE_DIR)" coverage/merged.profdata
+
+coverage-clang-report: coverage/merged.profdata
+	@./contrib/coverage/generate-coverage-report.sh coverage/merged.profdata coverage/html
+
+coverage-clang: coverage-clang-collect coverage-clang-report
+	@echo "Coverage report: coverage/html/index.html"
+
+coverage-clang-clean:
+	rm -rf coverage/ "$(CLN_COVERAGE_DIR)"
+
+.PHONY: coverage-clang-collect coverage-clang-report coverage-clang coverage-clang-clean
+
+# Python API documentation targets
+python-docs:
+	@./contrib/api/generate-python-docs.py
+
+python-docs-clean:
+	rm -rf docs/python
+
+.PHONY: python-docs python-docs-clean
 
 # We make libwallycore.la a dependency, so that it gets built normally, without ncc.
 # Ncc can't handle the libwally source code (yet).

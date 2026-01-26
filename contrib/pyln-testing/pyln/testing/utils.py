@@ -197,6 +197,29 @@ class TailableProc(object):
     def __init__(self, outputDir, verbose=True):
         self.logs = []
         self.env = os.environ.copy()
+
+        # Add coverage support: inject LLVM_PROFILE_FILE if CLN_COVERAGE_DIR is set
+        if os.getenv('CLN_COVERAGE_DIR'):
+            coverage_dir = os.getenv('CLN_COVERAGE_DIR')
+
+            # Organize profraw files by test name for per-test coverage analysis
+            test_name = os.getenv('CLN_TEST_NAME')
+            if test_name:
+                test_coverage_dir = os.path.join(coverage_dir, test_name)
+                os.makedirs(test_coverage_dir, exist_ok=True)
+                profraw_path = test_coverage_dir
+            else:
+                os.makedirs(coverage_dir, exist_ok=True)
+                profraw_path = coverage_dir
+
+            # %p=PID, %m=binary signature prevents collisions across parallel processes
+            # Note: We don't use %c (continuous mode) as it causes "__llvm_profile_counter_bias"
+            # errors with our multi-binary setup. Instead, we validate and filter corrupt files
+            # during collection (see contrib/coverage/collect-coverage.sh)
+            self.env['LLVM_PROFILE_FILE'] = os.path.join(
+                profraw_path, '%p-%m.profraw'
+            )
+
         self.proc = None
         self.outputDir = outputDir
         if not os.path.exists(outputDir):
@@ -818,7 +841,7 @@ class PrettyPrintingLightningRpc(LightningRpc):
 
 
 class LightningNode(object):
-    def __init__(self, node_id, lightning_dir, bitcoind, executor, valgrind, may_fail=False,
+    def __init__(self, node_id, lightning_dir, bitcoind, executor, may_fail=False,
                  may_reconnect=False,
                  broken_log=None,
                  allow_warning=False,
@@ -877,7 +900,7 @@ class LightningNode(object):
             self.daemon.opts["dev-debugger"] = dbgvar
         if os.getenv("DEBUG_LIGHTNINGD"):
             self.daemon.opts["dev-debug-self"] = None
-        if valgrind:
+        if VALGRIND:
             self.daemon.env["LIGHTNINGD_DEV_NO_BACKTRACE"] = "1"
             self.daemon.opts["dev-no-plugin-checksum"] = None
         else:
@@ -903,7 +926,7 @@ class LightningNode(object):
         dsn = db.get_dsn()
         if dsn is not None:
             self.daemon.opts['wallet'] = dsn
-        if valgrind:
+        if VALGRIND:
             trace_skip_pattern = '*python*,*bitcoin-cli*,*elements-cli*,*cln-grpc*,*clnrest*,*wss-proxy*,*cln-bip353*,*reckless'
             if not valgrind_plugins:
                 trace_skip_pattern += ',*plugins*'
@@ -1630,11 +1653,11 @@ class NodeFactory(object):
     """
     def __init__(self, request, testname, bitcoind, executor, directory,
                  db_provider, node_cls, jsonschemas):
-        if request.node.get_closest_marker("slow_test") and SLOW_MACHINE:
-            self.valgrind = False
-        else:
-            self.valgrind = VALGRIND
         self.testname = testname
+
+        # Set test name in environment for coverage file organization
+        os.environ['CLN_TEST_NAME'] = testname
+
         self.next_id = 1
         self.nodes = []
         self.reserved_ports = []
@@ -1728,7 +1751,7 @@ class NodeFactory(object):
         db = self.db_provider.get_db(os.path.join(lightning_dir, TEST_NETWORK), self.testname, node_id)
         db.provider = self.db_provider
         node = self.node_cls(
-            node_id, lightning_dir, self.bitcoind, self.executor, self.valgrind, db=db,
+            node_id, lightning_dir, self.bitcoind, self.executor, db=db,
             port=port, grpc_port=grpc_port, options=options, may_fail=may_fail or expect_fail,
             jsonschemas=self.jsonschemas,
             **kwargs
@@ -1845,7 +1868,7 @@ class NodeFactory(object):
             # leak detection upsets VALGRIND by reading uninitialized mem,
             # and valgrind adds extra fds.
             # If it's dead, we'll catch it below.
-            if not self.valgrind:
+            if not VALGRIND:
                 try:
                     # This also puts leaks in log.
                     leaks = self.nodes[i].rpc.dev_memleak()['leaks']

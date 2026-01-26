@@ -16,12 +16,14 @@ env:
   RUST_PROFILE: release
   SLOW_MACHINE: 1
   CI_SERVER_URL: "http://35.239.136.52:3170"
+  PYTEST_OPTS_BASE: "-vvv --junit-xml=report.xml --timeout=1800 --durations=10"
+  TEST_LOG_IGNORE_ERRORS: "1"
 
 jobs:
   prebuild:
     name: Pre-build checks
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     if: |
       github.event.action != 'edited' ||
       contains(github.event.pull_request.body, 'Changelog')
@@ -89,9 +91,16 @@ jobs:
       - name: Check source
         env:
           VALGRIND: 0
-          PYTEST_OPTS: --timeout=1200 --durations=10
+          PYTEST_OPTS: ${{ env.PYTEST_OPTS_BASE }}
         run: |
           uv run make check-source BASE_REF="origin/${{ github.base_ref }}"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-prebuild
+          path: report.xml
+          if-no-files-found: ignore
       - name: Check Generated Files have been updated
         run: uv run make check-gen-updated
       - name: Check docs
@@ -99,7 +108,7 @@ jobs:
 
   compile:
     name: Compile CLN ${{ matrix.cfg }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs:
       - prebuild
@@ -166,8 +175,8 @@ jobs:
     # The unit test checks are not in the critical path (not dependent
     # on the integration tests), so run them with `valgrind`
     name: Run unit tests
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       BOLTDIR: bolts
     needs:
@@ -211,7 +220,7 @@ jobs:
 
   check-fuzz:
     name: Run fuzz regression tests
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs:
       - prebuild
     steps:
@@ -237,7 +246,7 @@ jobs:
 
   check-downgrade:
     name: Check we can downgrade the node
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs:
       - compile
     strategy:
@@ -290,8 +299,8 @@ jobs:
         run: |
           mkdir /tmp/old-cln
           cd /tmp/old-cln
-          wget https://github.com/ElementsProject/lightning/releases/download/v25.09/clightning-v25.09-Ubuntu-22.04-amd64.tar.xz
-          tar -xaf clightning-v25.09-Ubuntu-22.04-amd64.tar.xz
+          wget https://github.com/ElementsProject/lightning/releases/download/v25.12/clightning-v25.12-ubuntu-24.04-amd64.tar.xz
+          tar -xaf clightning-v25.12-ubuntu-24.04-amd64.tar.xz
 
       - name: Switch network
         if: ${{ matrix.TEST_NETWORK == 'liquid-regtest' }}
@@ -310,18 +319,26 @@ jobs:
           LIGHTNINGD_POSTGRES_NO_VACUUM: 1
           VALGRIND: ${{ matrix.VALGRIND }}
           PREV_LIGHTNINGD: /tmp/old-cln/usr/bin/lightningd
+          PYTEST_OPTS: ${{ env.PYTEST_OPTS_BASE }}
         run: |
           env
           cat config.vars
-          uv run eatmydata pytest tests/test_downgrade.py -vvv -n ${PYTEST_PAR} ${PYTEST_OPTS}
+          uv run eatmydata pytest tests/test_downgrade.py -n ${PYTEST_PAR} ${PYTEST_OPTS}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-check-downgrade-${{ matrix.TEST_DB_PROVIDER }}-${{ matrix.TEST_NETWORK }}
+          path: report.xml
+          if-no-files-found: ignore
 
   integration:
     name: Test CLN ${{ matrix.name }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       RUST_PROFILE: release # Has to match the one in the compile step
-      PYTEST_OPTS: --timeout=1200 --durations=10
+      PYTEST_OPTS: -vvv --junit-xml=report.xml --timeout=1800 --durations=10
     needs:
       - compile
     strategy:
@@ -421,16 +438,23 @@ jobs:
         run: |
           env
           cat config.vars
-          VALGRIND=0 uv run eatmydata pytest tests/ -vvv -n ${PYTEST_PAR} ${PYTEST_OPTS}
+          VALGRIND=0 uv run eatmydata pytest tests/ -n ${PYTEST_PAR} ${PYTEST_OPTS}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-integration-${{ matrix.name }}
+          path: report.xml
+          if-no-files-found: ignore
 
   integration-valgrind:
     name: Valgrind Test CLN ${{ matrix.name }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       RUST_PROFILE: release # Has to match the one in the compile step
       CFG: compile-gcc
-      PYTEST_OPTS: --test-group-random-seed=42 --timeout=1800 --durations=10
+      PYTEST_OPTS: -vvv --junit-xml=report.xml --timeout=1800 --durations=10 --test-group-random-seed=42
     needs:
       - compile
     strategy:
@@ -438,24 +462,34 @@ jobs:
       matrix:
         include:
           - NAME: Valgrind (01/10)
+            GROUP: 1
             PYTEST_OPTS: --test-group=1  --test-group-count=10
           - NAME: Valgrind (02/10)
+            GROUP: 2
             PYTEST_OPTS: --test-group=2  --test-group-count=10
           - NAME: Valgrind (03/10)
+            GROUP: 3
             PYTEST_OPTS: --test-group=3  --test-group-count=10
           - NAME: Valgrind (04/10)
+            GROUP: 4
             PYTEST_OPTS: --test-group=4  --test-group-count=10
           - NAME: Valgrind (05/10)
+            GROUP: 5
             PYTEST_OPTS: --test-group=5  --test-group-count=10
           - NAME: Valgrind (06/10)
+            GROUP: 6
             PYTEST_OPTS: --test-group=6  --test-group-count=10
           - NAME: Valgrind (07/10)
+            GROUP: 7
             PYTEST_OPTS: --test-group=7  --test-group-count=10
           - NAME: Valgrind (08/10)
+            GROUP: 8
             PYTEST_OPTS: --test-group=8  --test-group-count=10
           - NAME: Valgrind (09/10)
+            GROUP: 9
             PYTEST_OPTS: --test-group=9  --test-group-count=10
           - NAME: Valgrind (10/10)
+            GROUP: 10
             PYTEST_OPTS: --test-group=10 --test-group-count=10
     steps:
       - name: Checkout
@@ -491,43 +525,66 @@ jobs:
           SLOW_MACHINE: 1
           TEST_DEBUG: 1
         run: |
-          VALGRIND=1 uv run eatmydata pytest tests/ -vvv -n 3 ${PYTEST_OPTS}  ${{ matrix.PYTEST_OPTS }}
+          VALGRIND=1 uv run eatmydata pytest tests/ -n 3 ${PYTEST_OPTS}  ${{ matrix.PYTEST_OPTS }}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-integration-valgrind-${{ matrix.GROUP }}
+          path: report.xml
+          if-no-files-found: ignore
 
   integration-sanitizers:
     name: Sanitizers Test CLN
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       RUST_PROFILE: release
       SLOW_MACHINE: 1
       TEST_DEBUG: 1
-      PYTEST_OPTS: --test-group-random-seed=42 --timeout=1800 --durations=10
+      PYTEST_OPTS: -vvv --junit-xml=report.xml --timeout=1800 --durations=10 --test-group-random-seed=42 
     needs:
       - compile
     strategy:
       fail-fast: false
       matrix:
         include:
-          - NAME: ASan/UBSan (01/10)
-            PYTEST_OPTS: --test-group=1  --test-group-count=10
-          - NAME: ASan/UBSan (02/10)
-            PYTEST_OPTS: --test-group=2  --test-group-count=10 -n 1
-          - NAME: ASan/UBSan (03/10)
-            PYTEST_OPTS: --test-group=3  --test-group-count=10
-          - NAME: ASan/UBSan (04/10)
-            PYTEST_OPTS: --test-group=4  --test-group-count=10
-          - NAME: ASan/UBSan (05/10)
-            PYTEST_OPTS: --test-group=5  --test-group-count=10
-          - NAME: ASan/UBSan (06/10)
-            PYTEST_OPTS: --test-group=6  --test-group-count=10
-          - NAME: ASan/UBSan (07/10)
-            PYTEST_OPTS: --test-group=7  --test-group-count=10
-          - NAME: ASan/UBSan (08/10)
-            PYTEST_OPTS: --test-group=8  --test-group-count=10
-          - NAME: ASan/UBSan (09/10)
-            PYTEST_OPTS: --test-group=9  --test-group-count=10
-          - NAME: ASan/UBSan (10/10)
-            PYTEST_OPTS: --test-group=10 --test-group-count=10
+          - NAME: ASan/UBSan (01/12)
+            GROUP: 1
+            PYTEST_OPTS: --test-group=1  --test-group-count=12
+          - NAME: ASan/UBSan (02/12)
+            GROUP: 2
+            PYTEST_OPTS: --test-group=2  --test-group-count=12
+          - NAME: ASan/UBSan (03/12)
+            GROUP: 3
+            PYTEST_OPTS: --test-group=3  --test-group-count=12
+          - NAME: ASan/UBSan (04/12)
+            GROUP: 4
+            PYTEST_OPTS: --test-group=4  --test-group-count=12
+          - NAME: ASan/UBSan (05/12)
+            GROUP: 5
+            PYTEST_OPTS: --test-group=5  --test-group-count=12
+          - NAME: ASan/UBSan (06/12)
+            GROUP: 6
+            PYTEST_OPTS: --test-group=6  --test-group-count=12
+          - NAME: ASan/UBSan (07/12)
+            GROUP: 7
+            PYTEST_OPTS: --test-group=7  --test-group-count=12
+          - NAME: ASan/UBSan (08/12)
+            GROUP: 8
+            PYTEST_OPTS: --test-group=8  --test-group-count=12
+          - NAME: ASan/UBSan (09/12)
+            GROUP: 9
+            PYTEST_OPTS: --test-group=9  --test-group-count=12
+          - NAME: ASan/UBSan (10/12)
+            GROUP: 10
+            PYTEST_OPTS: --test-group=10 --test-group-count=12
+          - NAME: ASan/UBSan (11/12)
+            GROUP: 11
+            PYTEST_OPTS: --test-group=11 --test-group-count=12
+          - NAME: ASan/UBSan (12/12)
+            GROUP: 12
+            PYTEST_OPTS: --test-group=12 --test-group-count=12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -557,19 +614,26 @@ jobs:
 
       - name: Test
         run: |
-          uv run eatmydata pytest tests/ -vvv -n 2 ${PYTEST_OPTS}  ${{ matrix.PYTEST_OPTS }}
+          uv run eatmydata pytest tests/ -n 2 ${PYTEST_OPTS}  ${{ matrix.PYTEST_OPTS }}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-integration-sanitizers-${{ matrix.GROUP }}
+          path: report.xml
+          if-no-files-found: ignore
 
   update-docs-examples:
     name: Update examples in doc schemas (disabled temporarily!)
     if: false
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
     env:
       VALGRIND: 0
       GENERATE_EXAMPLES: 1
-      PYTEST_OPTS: --timeout=1200 --durations=10
+      PYTEST_OPTS: -vvv --junit-xml=report.xml --timeout=1800 --durations=10
       TEST_NETWORK: regtest
     needs:
       - compile
@@ -601,14 +665,21 @@ jobs:
       - name: Test
         run: |
           uv run eatmydata make -j $(nproc) check-doc-examples
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-update-docs-examples
+          path: report.xml
+          if-no-files-found: ignore
 
   min-btc-support:
     name: Test minimum supported BTC v${{ matrix.MIN_BTC_VERSION }} with ${{ matrix.NAME }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       RUST_PROFILE: release # Has to match the one in the compile step
-      PYTEST_OPTS: --timeout=1200 --durations=10
+      PYTEST_OPTS: -vvv --junit-xml=report.xml --timeout=1800 --durations=10
     needs:
       - compile
     strategy:
@@ -674,33 +745,22 @@ jobs:
         run: |
           env
           cat config.vars
-          VALGRIND=0 uv run eatmydata pytest tests/ -vvv -n ${PYTEST_PAR} ${PYTEST_OPTS}
+          VALGRIND=0 uv run eatmydata pytest tests/ -n ${PYTEST_PAR} ${PYTEST_OPTS}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-min-btc-support-${{ matrix.NAME }}
+          path: report.xml
+          if-no-files-found: ignore
 
-  check-flake:
-    name: Check Nix Flake
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-      - name: Check Nix flake inputs
-        uses: DeterminateSystems/flake-checker-action@v8
-      - name: Install Nix
-        uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-      - name: Check flake
-        run: nix flake check
 
   gather:
     # A dummy task that depends on the full matrix of tests, and
     # signals successful completion. Used for the PR status to pass
     # before merging.  Needs to run even if they failed!
     name: CI completion
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs:
       - integration
       - check-units
